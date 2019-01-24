@@ -1,0 +1,7 @@
+.idea
+cmake-build-debug
+*.o
+CMakeLists.txt
+balance.spec
+COPYING
+*.pdf
