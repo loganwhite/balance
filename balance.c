@@ -114,7 +114,9 @@
  *    to ipv4 to address the problems of showing same address
  *    with different client accessing          Logan
  *
- *    Change the default balance mode to hash
+ *    Change the default balance mode to hash   Logan
+ *
+ *    save state COMMON to redis server, logan 1/24/2019
  *
  */
 
@@ -122,6 +124,10 @@
 
 const char *balance_rcsid = "$Id: balance.c,v 3.57 2015/04/28 07:49:16 t Exp $";
 static char *revision = "$Revision: 3.57 $";
+
+/* Redis config, Logan */
+static char* REDIS_IP = "128.101.118.81";
+static int REDIS_PORT = 6379;
 
 static int release;             /* local variable, versions, Logan */
 static int subrelease;          /* local variable, versions, Logan */
@@ -158,6 +164,8 @@ static int err_dump(char *text) {
 }
 
 COMMON *common;         /* Main network state, stores groups and program infos, Logan */
+//redisContext *context;  /* The redis connection context, Logan */
+//redisReply* reply;      /* The redis reply object, Logan */
 
 /*
  * The following variables are program operational variables, Logan
@@ -253,6 +261,95 @@ int create_serversocket(char* node, char* service) {
     }
 
     return(srv_socket);
+}
+
+/* redis ..., Logan */
+// func_name is the invocation function name
+void redis_save_common(char* func_name) {
+    redisContext *context;  /* The redis connection context, Logan */
+    redisReply* reply;      /* The redis reply object, Logan */
+    struct timeval  tv1, tv2;
+    printf("Redis Save Entering: %s.\n", func_name);
+    gettimeofday(&tv1, NULL);
+    context = redisConnect(REDIS_IP, REDIS_PORT);
+    if (!context || context->err) {
+        if (!context)
+            fprintf(stderr, "Cannot initialize redis connection!\n");
+        else {
+            fprintf(stderr, "Redis connection error: %s.\n", context->errstr);
+            redisFree(context);
+        }
+    }
+
+    reply = redisCommand(context, "SET a %b", common, sizeof(COMMON));
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        if (!reply)
+            fprintf(stderr, "Redis save common error NULL %s.\n", context->errstr);
+        else {
+            fprintf(stderr, "Redis save common error: %s.\n", reply->str);
+        }
+        freeReplyObject(reply);
+        redisFree(context);
+        gettimeofday(&tv2, NULL);
+        printf("Execution time of redis save in %s is: %lf\n", func_name,
+                (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+                (double) (tv2.tv_sec - tv1.tv_sec));
+        //return -1;
+    }
+    printf("Reply msg: %s\n.", reply->str);
+
+    freeReplyObject(reply);
+    redisFree(context);
+    gettimeofday(&tv2, NULL);
+    printf("Execution time of redis save in %s is: %lf\n", func_name,
+            (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+            (double) (tv2.tv_sec - tv1.tv_sec));
+    //return 0;
+}
+
+void redis_get_common(char* func_name) {
+    redisContext *context;  /* The redis connection context, Logan */
+    redisReply* reply;      /* The redis reply object, Logan */
+    struct timeval  tv1, tv2;
+
+    printf("Redis Get Entering: %s\n", func_name);
+    gettimeofday(&tv1, NULL);
+    context = redisConnect(REDIS_IP, REDIS_PORT);
+    if (!context || context->err) {
+        if (!context)
+            fprintf(stderr, "Cannot initialize redis connection!\n");
+        else {
+            fprintf(stderr, "Redis connection error: %s.\n", context->errstr);
+            redisFree(context);
+        }
+    }
+
+    reply = redisCommand(context, "GET a");
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        if (reply) {
+            fprintf(stderr, "Redis get common error: %s.\n", reply->str);
+        }
+        else
+            fprintf(stderr, "Redis get common error.null, %s\n", context->errstr);
+        freeReplyObject(reply);
+        redisFree(context);
+        gettimeofday(&tv2, NULL);
+        printf("Execution time of redis save in %s is: %lf\n", func_name,
+               (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+               (double) (tv2.tv_sec - tv1.tv_sec));
+//        return new_common;
+    }
+    printf("reply result %s\n.", reply->str);
+    *common = *((COMMON*) reply->str);
+    printf("get common release! %d\n", common->release);
+
+    freeReplyObject(reply);
+    redisFree(context);
+    gettimeofday(&tv2, NULL);
+    printf("Execution time of redis save in %s is: %lf\n", func_name,
+           (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+           (double) (tv2.tv_sec - tv1.tv_sec));
+//    return new_common;
 }
 
 /* locking ... */
@@ -820,6 +917,7 @@ void *stream(int arg, int groupindex, int index, char *client_address,
             }
         }
 
+        redis_get_common("stream get");
         b_readlock();
         bzero((char *) &serv_addr, sizeof(serv_addr));
         serv_addr.sin_family = AF_INET;
@@ -984,6 +1082,7 @@ void *stream(int arg, int groupindex, int index, char *client_address,
             // stream2 never returns, but just in case...
             break;
         }
+        redis_save_common("stream save");
     }
 
     close(sockfd);
@@ -1753,6 +1852,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "cannot alloc COMMON struct\n");
             exit(EX_OSERR);
         }
+        redis_save_common("main sharemem");     //redis initial save
         shell(argument);
     }
 
@@ -1772,6 +1872,7 @@ int main(int argc, char *argv[])
     }
 
     common = makecommon(argc, argv, source_port);
+    redis_save_common("main start");        // redis initial save
 
     for (;;) {
         int index;              // The selected channel, Logan
@@ -1804,6 +1905,8 @@ int main(int argc, char *argv[])
 
         b_writelock();
         for (;;) {
+            // redis get
+            redis_get_common("main select channel");
             index = grp_current(common, groupindex);            /* Get current using channel in group groupindex, Logan*/
             for (;;) {                                          /* This for loop finds channel in both RR and Hash, Logan */
                 if (grp_type(common, groupindex) == GROUP_RR) {
@@ -1909,6 +2012,7 @@ int main(int argc, char *argv[])
                     break;				// end of groups...
                 }
             }
+            redis_save_common("main channel selection");
         }
 
         b_unlock();

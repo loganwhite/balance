@@ -5,6 +5,7 @@ CFLAGS=-O2 -Wall -Wstrict-prototypes -Wuninitialized
 
 # uncomment for any OS other than Cygwin
 BALANCE=balance
+LIBRARIES=-lpthread -L/usr/local/lib -lhiredis
 ROOT=root
 INSTALL=install
 BINDIR=/usr/sbin
@@ -17,7 +18,7 @@ MANDIR=${BINDIR}/../man/man1
 
 # uncomment for Cygwin:
 # LIBRARIES=-L/usr/local/lib -lcygipc
-LIBRARIES=-L/usr/local/lib -lhiredis
+
 # BALANCE=balance.exe
 # ROOT=Administrators
 

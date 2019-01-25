@@ -54,6 +54,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>	/* for TCP_NODELAY definition */
+#include <hiredis/hiredis.h> /* add redis client api library, logan */
+#include <sys/time.h>        /* add support for time statistics, logan */
+#include <pthread.h>        /* add mutex support, logan */
 
 /* solaris 9, solaris 10 do not have INADDR_NONE */
 #ifndef INADDR_NONE
